@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar dependencias Python, incluyendo boto3, OpenCV y otras librerías
-RUN pip install --no-cache-dir boto3 opencv-python pillow colorama
+RUN pip install --no-cache-dir boto3 opencv-python pillow colorama PyMuPDF numpy
 
 # Copiar el script Python dentro del contenedor
 COPY Script.py /app/
