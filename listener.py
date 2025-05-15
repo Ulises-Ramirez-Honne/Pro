@@ -28,11 +28,13 @@ def process_messages():
 
             for message in messages:
                 body = message['Body']
+                receipt_handle = message['ReceiptHandle']
+                temp_id = str(uuid.uuid4())
+                temp_filename = f"/tmp/message_{temp_id}.json"
+
                 print(f"\nMensaje recibido: {body}")
 
                 # Guardar el mensaje en un archivo temporal
-                temp_id = str(uuid.uuid4())
-                temp_filename = f"/tmp/message_{temp_id}.json"
                 with open(temp_filename, 'w') as f:
                     f.write(body)
 
@@ -44,9 +46,19 @@ def process_messages():
                         'my-listener-image',
                         '/app/message.json'
                     ], check=True)
+
+                    # Si la ejecución fue exitosa, eliminar el mensaje de la cola
+                    sqs.delete_message(
+                        QueueUrl=QUEUE_URL,
+                        ReceiptHandle=receipt_handle
+                    )
+                    print(f"[{temp_id}] Mensaje eliminado de la cola SQS.")
+
                 except subprocess.CalledProcessError as e:
                     print(f"[{temp_id}] Error al ejecutar el contenedor Docker: {e}")
+
                 finally:
+                    # Siempre elimina el archivo temporal
                     os.remove(temp_filename)
 
     except KeyboardInterrupt:
