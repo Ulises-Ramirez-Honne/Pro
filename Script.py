@@ -37,6 +37,7 @@ except KeyError as e:
 # Ruta local donde se guardará el archivo descargado
 filename = key.split("/")[-1]
 local_path = os.path.join("/tmp", filename)
+print(local_path)
 
 # Flag para indicar si la descarga terminó
 download_complete = False
