@@ -107,7 +107,7 @@ if download_error:
     print(f"[{execution_id}] {download_error}")
 else:
     print(f"[{execution_id}] Archivo descargado correctamente en: {local_path}")
-    extract_from_pdf_pymupdf(local_path)
+    #extract_from_pdf_pymupdf(local_path)
 
 end_time = time.time()
 end_dt = datetime.utcnow()
