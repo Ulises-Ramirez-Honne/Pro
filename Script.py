@@ -42,7 +42,6 @@ except KeyError as e:
 # Ruta local donde se guardará el archivo descargado
 filename = key.split("/")[-1]
 local_path = os.path.join("/tmp", filename)
-print(local_path)
 
 # Flag para indicar si la descarga terminó
 download_complete = False
@@ -55,7 +54,7 @@ def upload_roi_to_s3(roi_np, filename):
     roi_image.save(buffer, format="PNG")
     buffer.seek(0)
     s3.upload_fileobj(buffer, DESTINATION_BUCKET, filename)
-    print(f"Subido: {filename} a S3")
+    print(f"[{execution_id}] Imágen {filename} cargada a {DESTINATION_BUCKET}")
 
 def process_image_opencv(image_np, page_num):
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
@@ -130,6 +129,6 @@ end_time = time.time()
 end_dt = datetime.utcnow()
 duration = round(end_time - start_time, 2)
 
-print(f"[{execution_id}] Finalizado a las {end_dt} UTC")
+print(f"[{execution_id}] Contenedor finalizado a las {end_dt} UTC")
 print(f"[{execution_id}] Duración total: {duration} segundos")
 print(f"----------------------------------------------------------------")

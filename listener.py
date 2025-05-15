@@ -32,7 +32,8 @@ def process_messages():
                 temp_id = str(uuid.uuid4())
                 temp_filename = f"/tmp/message_{temp_id}.json"
 
-                print(f"\nMensaje recibido: {body}")
+                print("Inicia lectura de nuevo mensaje")
+                print(f"\nMensaje recibido correctamente... ")
 
                 # Guardar el mensaje en un archivo temporal
                 with open(temp_filename, 'w') as f:
