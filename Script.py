@@ -11,6 +11,11 @@ import numpy as np
 import fitz #PyMuPDF
 from PIL import Image
 import cv2
+import io
+
+# definir las porpiedades que se usaran 
+s3 = boto3.client('s3')
+DESTINATION_BUCKET = "silver-honne-sep"
 
 start_time = time.time()
 start_dt = datetime.utcnow()
@@ -43,6 +48,15 @@ print(local_path)
 download_complete = False
 download_error = None
 
+def upload_roi_to_s3(roi_np, filename):
+    """Convierte el ROI a imagen PNG y lo sube a S3."""
+    roi_image = Image.fromarray(roi_np)
+    buffer = io.BytesIO()
+    roi_image.save(buffer, format="PNG")
+    buffer.seek(0)
+    s3.upload_fileobj(buffer, DESTINATION_BUCKET, filename)
+    print(f"Subido: {filename} a S3")
+
 def process_image_opencv(image_np, page_num):
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
  
@@ -57,6 +71,8 @@ def process_image_opencv(image_np, page_num):
     for i, cnt in enumerate(contours):
         x, y, w, h = cv2.boundingRect(cnt)
         roi = gray[y:y+h, x:x+w]
+        filename = f"pagina_{page_num}_area_{i+1}.png"
+        upload_roi_to_s3(roi, filename)
          
  
 def extract_from_pdf_pymupdf(pdf_path, dpi=150):
