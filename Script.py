@@ -75,7 +75,7 @@ end_time = time.time()
 end_dt = datetime.utcnow()
 duration = round(end_time - start_time, 2)
 
-print(f"Finalizado a las {end_dt} UTC")
+print(f"[{execution_id}] Finalizado a las {end_dt} UTC")
 print(f"[{execution_id}] Duración total: {duration} segundos")
 print(f"----------------------------------------------------------------")
 
