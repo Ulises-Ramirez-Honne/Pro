@@ -34,14 +34,14 @@ def process_messages():
 
                 print("Inicia lectura de nuevo mensaje")
                 print(body)
-                print(f"\nMensaje recibido correctamente... ")
+                print(f"[{temp_id}] Mensaje recibido correctamente... ")
 
                 # Guardar el mensaje en un archivo temporal
                 with open(temp_filename, 'w') as f:
                     f.write(body)
 
                 try:
-                    print("Ejecutando Docker con archivo de mensaje...")
+                    print("[{temp_id}] Ejecutando Docker con archivo de mensaje...")
                     subprocess.run([
                         'docker', 'run', '--rm',
                         '-v', f'{temp_filename}:/app/message.json',
