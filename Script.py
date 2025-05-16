@@ -13,7 +13,7 @@ import io
 
 # Configuraciones globales
 DESTINATION_BUCKET = "silver-honne-sep"
-STEP_FUNCTION_ARN = "arn:aws:states:us-east-1:153788051293:stateMachine:Flujo_SEP_ExtraccionConBedrock"
+STEP_FUNCTION_ARN = "arn:aws:states:us-east-1:153788051293:stateMachine:test_ec2"
 
 # Inicializa clientes AWS
 s3 = boto3.client("s3")
