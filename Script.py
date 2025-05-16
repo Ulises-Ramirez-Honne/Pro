@@ -15,7 +15,7 @@ import io
 
 # definir las porpiedades que se usaran 
 s3 = boto3.client('s3')
-bedrock = boto3.client('bedrock-runtime')
+bedrock = boto3.client('bedrock-runtime',region_name="us-east-1")
 DESTINATION_BUCKET = "silver-honne-sep"
 
 start_time = time.time()
