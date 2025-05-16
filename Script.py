@@ -139,7 +139,7 @@ except Exception as e:
 input_sf = {
     "Bucket": DESTINATION_BUCKET,
     "Key": output_key,
-    "Tipo": tipo_doc_str,
+    "Tipo": tipo_doc,
     "uuid": event_id
 }
 
