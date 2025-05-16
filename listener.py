@@ -41,7 +41,7 @@ def process_messages():
                     f.write(body)
 
                 try:
-                    print("[{temp_id}] Ejecutando Docker con archivo de mensaje...")
+                    print(f"[{temp_id}] Ejecutando Docker con archivo de mensaje...")
                     subprocess.run([
                         'docker', 'run', '--rm',
                         '-v', f'{temp_filename}:/app/message.json',
