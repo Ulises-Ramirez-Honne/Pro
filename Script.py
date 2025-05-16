@@ -99,6 +99,7 @@ def process_image_opencv(image_np):
 # Extraer páginas y procesar
 def extract_and_process_images(pdf_path, dpi=150):
     doc = fitz.open(pdf_path)
+    numero_de_paginas=doc.page_count
     processed_images = []
 
     for i, page in enumerate(doc):
@@ -110,10 +111,10 @@ def extract_and_process_images(pdf_path, dpi=150):
         processed_images.append(processed_img.convert("RGB"))
 
     doc.close()
-    return processed_images
+    return processed_images, numero_de_paginas
 
 # Procesar PDF
-imagenes = extract_and_process_images(local_pdf_path)
+imagenes, numero_de_paginas = extract_and_process_images(local_pdf_path)
 
 # Guardar imágenes como un solo PDF
 pdf_bytes = io.BytesIO()
@@ -140,7 +141,8 @@ input_sf = {
     "Bucket": DESTINATION_BUCKET,
     "Key": output_key,
     "Tipo": tipo_doc,
-    "uuid": event_id
+    "uuid": event_id,
+    "Num_pags":numero_de_paginas
 }
 
 try:
