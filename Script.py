@@ -10,6 +10,7 @@ from PIL import Image
 import fitz  # PyMuPDF
 import cv2
 import io
+from io import BytesIO
 
 # Configuraciones globales
 DESTINATION_BUCKET = "silver-honne-sep"
@@ -35,6 +36,7 @@ event_id = msg["id"]
 filename = key.split("/")[-1]
 local_pdf_path = f"/tmp/{filename}"
 output_pdf_path = f"/tmp/processed_{filename}"
+dest_key = f"preprocesado/{os.path.basename(key)}"
 
 print(f"[{execution_id}] Iniciando procesamiento para {key}")
 
@@ -92,32 +94,138 @@ def clasificacion_documentos(bucket, key):
     return response['output']['message']['content'][0]['text']
 
 # Procesamiento de imágenes con OpenCV
-def process_image_opencv(image_np):
+def process_image_opencv(image_np, max_rois=2):
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
-    return Image.fromarray(gray)
+    # Detección de bordes y dilatación
+    edges = cv2.Canny(gray, 50, 150)
+    dilated = cv2.dilate(edges, np.ones((5, 5), np.uint8), iterations=1)
+    
+    # Encontrar contornos
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Ordenar todos los contornos por área (de mayor a menor)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    
+    # Limitar a los max_rois contornos más grandes
+    contours = contours[:max_rois]
+    
+    # Lista para almacenar las ROIs
+    all_rois = []
+    
+    for i, cnt in enumerate(contours):
+        x, y, w, h = cv2.boundingRect(cnt)
+        
+        # Calcular las nuevas dimensiones ampliadas (factor 1.5)
+        center_x, center_y = x + w/2, y + h/2
+        new_w, new_h = int(w * 1.5), int(h * 1.5)
+        
+        # Calcular las nuevas coordenadas manteniendo el centro
+        new_x = max(0, int(center_x - new_w/2))
+        new_y = max(0, int(center_y - new_h/2))
+        
+        # Asegurarse de que el ROI ampliado no exceda los límites de la imagen
+        new_w = min(image_np.shape[1] - new_x, new_w)
+        new_h = min(image_np.shape[0] - new_y, new_h)
+        
+        # Extraer el ROI ampliado
+        roi = gray[new_y:new_y+new_h, new_x:new_x+new_w]
+        
+        # Guardar solo el ROI
+        all_rois.append(roi)
+    
+    return all_rois
 
-# Extraer páginas y procesar
+    
+# EXTRAER IMAGENES Y PROCESAR
 def extract_and_process_images(pdf_path, dpi=150):
     doc = fitz.open(pdf_path)
-    numero_de_paginas=doc.page_count
+    numero_de_paginas = doc.page_count
     processed_images = []
-
     for i, page in enumerate(doc):
         mat = fitz.Matrix(dpi / 72, dpi / 72)
         pix = page.get_pixmap(matrix=mat)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         img_np = np.array(img)
-        processed_img = process_image_opencv(img_np)
-        processed_images.append(processed_img.convert("RGB"))
-
+        
+        # Procesar la imagen y obtener las 2 ROIs más grandes
+        rois = process_image_opencv(img_np, max_rois=2)
+        
+        # Convertir cada ROI a PIL Image y agregarlos a la lista
+        pil_rois = []
+        for roi in rois:
+            # Convertir cada ROI de numpy array a PIL Image
+            pil_roi = Image.fromarray(roi)
+            # Asegurarse de que sea RGB si es necesario
+            if pil_roi.mode != 'RGB':
+                pil_roi = pil_roi.convert('RGB')
+            pil_rois.append(pil_roi)
+        
+        processed_images.append(pil_rois)
+    
     doc.close()
     return processed_images, numero_de_paginas
 
+def save_rois_to_s3_one_per_page(imagenes, dpi=150, page_size="A4", region='us-east-1'):
+    # Tamaños de página en puntos
+    PAGE_SIZES = {
+        "A4": (595, 842),
+        "Letter": (612, 792),
+    }
+    page_width, page_height = PAGE_SIZES.get(page_size, PAGE_SIZES["A4"])
+
+    # Crear PDF en memoria
+    doc = fitz.open()
+
+    for rois in imagenes:
+        for roi in rois:
+            if roi.mode != 'RGB':
+                roi = roi.convert('RGB')
+
+            # Calcular dimensiones del ROI en puntos
+            roi_width_pt = roi.width * 72 / dpi
+            roi_height_pt = roi.height * 72 / dpi
+
+            # Escalar para que quepa en la página
+            scale_factor = min(page_width / roi_width_pt, page_height / roi_height_pt, 1.0)
+            roi_width_pt *= scale_factor
+            roi_height_pt *= scale_factor
+
+            resized_roi = roi.resize((int(roi_width_pt * dpi / 72), int(roi_height_pt * dpi / 72)))
+
+            # Guardar la imagen como PNG en memoria
+            img_buffer = BytesIO()
+            resized_roi.save(img_buffer, format="PNG")
+
+            # Crear nueva página
+            page = doc.new_page(width=page_width, height=page_height)
+
+            # Insertar imagen centrada
+            x0 = (page_width - roi_width_pt) / 2
+            y0 = (page_height - roi_height_pt) / 2
+            rect = fitz.Rect(x0, y0, x0 + roi_width_pt, y0 + roi_height_pt)
+            page.insert_image(rect, stream=img_buffer.getvalue())
+
+    # Guardar el PDF en memoria
+    pdf_buffer = BytesIO()
+    doc.save(pdf_buffer)
+    doc.close()
+
+    # Subir a S3
+    s3.put_object(
+                Bucket=DESTINATION_BUCKET,
+                Key=dest_key,
+                Body=pdf_buffer.getvalue(),
+                ContentType='application/pdf'
+            )
+
+    print(f"✅ PDF subido a s3://{DESTINATION_BUCKET}/{key}")
+
 # Procesar PDF
 imagenes, numero_de_paginas = extract_and_process_images(local_pdf_path)
+save_rois_to_s3_one_per_page(imagenes)
 
 # Guardar imágenes como un solo PDF
-pdf_bytes = io.BytesIO()
+""" pdf_bytes = io.BytesIO()
 if imagenes:
     imagenes[0].save(pdf_bytes, format="PDF", save_all=True, append_images=imagenes[1:])
     pdf_bytes.seek(0)
@@ -126,7 +234,7 @@ if imagenes:
     s3.upload_fileobj(pdf_bytes, DESTINATION_BUCKET, output_key)
     print(f"[{execution_id}] PDF procesado y subido a: {output_key}")
 else:
-    print(f"[{execution_id}] No se generaron imágenes.")
+    print(f"[{execution_id}] No se generaron imágenes.") """
 
 # Clasificar
 try:
@@ -139,7 +247,7 @@ except Exception as e:
 # Lanzar Step Function
 input_sf = {
     "Bucket": DESTINATION_BUCKET,
-    "Key": output_key,
+    "Key": dest_key,
     "Tipo": tipo_doc,
     "uuid": event_id,
     "Num_pags":numero_de_paginas
