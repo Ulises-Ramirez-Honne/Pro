@@ -253,6 +253,7 @@ if "tipoDocumento" in tipo_doc:
     else:
         docu = fitz.open(local_pdf_path)
         # Guardar en memoria y subir
+        numero_de_paginas = docu.page_count
         pdf_buffer = io.BytesIO()
         docu.save(pdf_buffer)
         pdf_buffer.seek(0)
