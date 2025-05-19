@@ -4,6 +4,7 @@ import os
 import subprocess
 import boto3
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ANSI color codes para logs
@@ -26,6 +27,14 @@ def timestamp():
 def elapsed(start):
     return f"{time.time() - start:.2f} segundos"
 
+def extract_json_from_body(body):
+    """Extrae el bloque JSON del cuerpo del mensaje"""
+    match = re.search(r'(\{.*\})', body, re.DOTALL)
+    if match:
+        return match.group(1)
+    else:
+        raise ValueError("No se encontró un JSON válido en el cuerpo del mensaje")
+
 def handle_message(message):
     temp_id = str(uuid.uuid4())
     temp_filename = f"/tmp/message_{temp_id}.json"
@@ -33,13 +42,12 @@ def handle_message(message):
     log(f"[{temp_id}] ===== INICIO =====", LogColor.CYAN)
 
     step_start = timestamp()
-    print(message)
     body = message['Body']
-    print(body)
     try:
-        json.loads(body)
+        body_json = extract_json_from_body(body)
+        json.loads(body_json)  # Verificación de que es válido
         with open(temp_filename, 'w') as f:
-            f.write(body)
+            f.write(body_json)
         log(f"[{temp_id}] JSON guardado en {elapsed(step_start)}", LogColor.GREEN)
     except Exception as e:
         log(f"[{temp_id}] Error al guardar JSON: {e}", LogColor.RED)
