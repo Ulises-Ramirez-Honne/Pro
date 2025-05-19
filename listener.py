@@ -24,10 +24,14 @@ sqs = boto3.client('sqs', region_name='us-east-1')
 
 running_containers = 0
 lock = threading.Lock()
+MAX_CONTAINERS = 5  # Límite máximo de contenedores simultáneos
 
 def increment_containers():
     global running_containers
     with lock:
+        while running_containers >= MAX_CONTAINERS:
+            log(f"[WAIT] Esperando... Contenedores en uso: {running_containers}/{MAX_CONTAINERS}", LogColor.YELLOW)
+            time.sleep(1)
         running_containers += 1
         return running_containers
 
