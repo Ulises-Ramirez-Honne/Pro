@@ -181,6 +181,9 @@ def save_rois_to_s3_one_per_page(imagenes, dpi=150, page_size="A4", region='us-e
             if roi.mode != 'RGB':
                 roi = roi.convert('RGB')
 
+            # 🔍 Escalar la imagen a 1.5x su tamaño original
+            roi = roi.resize((int(roi.width * 1.5), int(roi.height * 1.5)))
+            
             # Calcular dimensiones del ROI en puntos
             roi_width_pt = roi.width * 72 / dpi
             roi_height_pt = roi.height * 72 / dpi
