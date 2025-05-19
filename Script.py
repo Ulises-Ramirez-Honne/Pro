@@ -183,7 +183,7 @@ def save_rois_to_s3_one_per_page(imagenes, dpi=150, page_size="A4", region='us-e
 
             # 🔍 Escalar la imagen a 1.5x su tamaño original
             roi = roi.resize((int(roi.width * 1.5), int(roi.height * 1.5)))
-            
+
             # Calcular dimensiones del ROI en puntos
             roi_width_pt = roi.width * 72 / dpi
             roi_height_pt = roi.height * 72 / dpi
@@ -224,8 +224,6 @@ def save_rois_to_s3_one_per_page(imagenes, dpi=150, page_size="A4", region='us-e
     print(f"✅ PDF subido a s3://{DESTINATION_BUCKET}/{key}")
 
 # Procesar PDF
-imagenes, numero_de_paginas = extract_and_process_images(local_pdf_path)
-save_rois_to_s3_one_per_page(imagenes)
 
 # Guardar imágenes como un solo PDF
 """ pdf_bytes = io.BytesIO()
@@ -246,6 +244,26 @@ try:
 except Exception as e:
     print(f"[{execution_id}] Error al clasificar: {e}")
     tipo_doc = {"tipoDocumento": "Documento desconocido"}
+
+if "tipoDocumento" in tipo_doc:
+    print(f"TIPO:{tipo_doc}")
+    if "INE_IFE" in tipo_doc["tipoDocumento"]:
+        imagenes, numero_de_paginas = extract_and_process_images(local_pdf_path)
+        save_rois_to_s3_one_per_page(imagenes)
+    else:
+        docu = fitz.open(local_pdf_path)
+        # Guardar en memoria y subir
+        pdf_buffer = io.BytesIO()
+        docu.save(pdf_buffer)
+        pdf_buffer.seek(0)
+        s3.put_object(
+                Bucket=DESTINATION_BUCKET,
+                Key=dest_key,
+                Body=pdf_buffer,
+                ContentType='application/pdf'
+            )
+
+        print(f"✅ PDF subido a s3://{DESTINATION_BUCKET}/{key}")
 
 # Lanzar Step Function
 input_sf = {
