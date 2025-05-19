@@ -22,24 +22,8 @@ def log(msg, color=LogColor.RESET):
 QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/153788051293/DocumentInformationQueue'
 sqs = boto3.client('sqs', region_name='us-east-1')
 
-running_containers = 0
-lock = threading.Lock()
 MAX_CONTAINERS = 5  # Límite máximo de contenedores simultáneos
-
-def increment_containers():
-    global running_containers
-    with lock:
-        while running_containers >= MAX_CONTAINERS:
-            log(f"[WAIT] Esperando... Contenedores en uso: {running_containers}/{MAX_CONTAINERS}", LogColor.YELLOW)
-            time.sleep(1)
-        running_containers += 1
-        return running_containers
-
-def decrement_containers():
-    global running_containers
-    with lock:
-        running_containers -= 1
-        return running_containers
+container_semaphore = threading.Semaphore(MAX_CONTAINERS)
 
 def timestamp():
     return time.time()
@@ -55,9 +39,11 @@ def extract_json_from_body(body):
         raise ValueError("No se encontró un JSON válido en el cuerpo del mensaje")
 
 def run_docker_async(temp_filename, temp_id, receipt_handle):
+    log(f"[{temp_id}] Esperando permiso para correr contenedor... (Máximo {MAX_CONTAINERS})", LogColor.YELLOW)
+    container_semaphore.acquire()
+    log(f"[{temp_id}] Permiso concedido para correr contenedor", LogColor.GREEN)
+
     step_start = timestamp()
-    count = increment_containers()
-    log(f"[{temp_id}] Ejecutando contenedor Docker... Contenedores simultáneos: {count}", LogColor.YELLOW)
     try:
         proc = subprocess.Popen([
             'docker', 'run', '--rm',
@@ -74,8 +60,7 @@ def run_docker_async(temp_filename, temp_id, receipt_handle):
         threading.Thread(target=watchdog, daemon=True).start()
 
         proc.wait()
-        count = decrement_containers()
-        log(f"[{temp_id}] Docker ejecutado correctamente en {elapsed(step_start)}. Contenedores simultáneos: {count}", LogColor.GREEN)
+        log(f"[{temp_id}] Docker ejecutado correctamente en {elapsed(step_start)}", LogColor.GREEN)
 
         try:
             sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
@@ -90,8 +75,10 @@ def run_docker_async(temp_filename, temp_id, receipt_handle):
             log(f"[{temp_id}] Error al eliminar archivo temporal: {e}", LogColor.RED)
 
     except Exception as e:
-        count = decrement_containers()
-        log(f"[{temp_id}] Error en ejecución de Docker: {e}. Contenedores simultáneos: {count}", LogColor.RED)
+        log(f"[{temp_id}] Error en ejecución de Docker: {e}", LogColor.RED)
+    finally:
+        container_semaphore.release()
+        log(f"[{temp_id}] Permiso liberado tras ejecución del contenedor", LogColor.CYAN)
 
 def handle_message(message):
     temp_id = str(uuid.uuid4())
