@@ -54,20 +54,6 @@ def extract_json_from_body(body):
     else:
         raise ValueError("No se encontró un JSON válido en el cuerpo del mensaje")
 
-def monitor_system():
-    while True:
-        try:
-            cpu_load = os.getloadavg()[0]  # carga de 1 minuto
-            result = subprocess.run(['free', '-m'], capture_output=True, text=True)
-            lines = result.stdout.splitlines()
-            mem_line = lines[1].split()
-            used = int(mem_line[2])
-            total = int(mem_line[1])
-            log(f"[MONITOR] CPU: {cpu_load:.2f} | RAM: {used}/{total} MB", LogColor.CYAN)
-        except Exception as e:
-            log(f"[MONITOR] Error al obtener métricas: {e}", LogColor.RED)
-        time.sleep(5)
-
 def run_docker_async(temp_filename, temp_id, receipt_handle):
     step_start = timestamp()
     count = increment_containers()
@@ -132,9 +118,6 @@ def handle_message(message):
 def process_messages():
     max_workers = 10
     log(f"Iniciando listener con hasta {max_workers} hilos...", LogColor.CYAN)
-
-    # Inicia monitoreo del sistema
-    threading.Thread(target=monitor_system, daemon=True).start()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         try:
