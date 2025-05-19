@@ -22,7 +22,6 @@ def log(msg, color=LogColor.RESET):
 QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/153788051293/DocumentInformationQueue'
 sqs = boto3.client('sqs', region_name='us-east-1')
 
-# Contador thread-safe para contenedores en ejecución
 running_containers = 0
 lock = threading.Lock()
 
@@ -45,15 +44,27 @@ def elapsed(start):
     return f"{time.time() - start:.2f} segundos"
 
 def extract_json_from_body(body):
-    """Extrae el bloque JSON del cuerpo del mensaje"""
     match = re.search(r'(\{.*\})', body, re.DOTALL)
     if match:
         return match.group(1)
     else:
         raise ValueError("No se encontró un JSON válido en el cuerpo del mensaje")
 
+def monitor_system():
+    while True:
+        try:
+            cpu_load = os.getloadavg()[0]  # carga de 1 minuto
+            result = subprocess.run(['free', '-m'], capture_output=True, text=True)
+            lines = result.stdout.splitlines()
+            mem_line = lines[1].split()
+            used = int(mem_line[2])
+            total = int(mem_line[1])
+            log(f"[MONITOR] CPU: {cpu_load:.2f} | RAM: {used}/{total} MB", LogColor.CYAN)
+        except Exception as e:
+            log(f"[MONITOR] Error al obtener métricas: {e}", LogColor.RED)
+        time.sleep(5)
+
 def run_docker_async(temp_filename, temp_id, receipt_handle):
-    """Ejecuta el contenedor Docker sin bloquear el hilo principal."""
     step_start = timestamp()
     count = increment_containers()
     log(f"[{temp_id}] Ejecutando contenedor Docker... Contenedores simultáneos: {count}", LogColor.YELLOW)
@@ -64,16 +75,20 @@ def run_docker_async(temp_filename, temp_id, receipt_handle):
             'my-listener-image',
             '/app/message.json'
         ])
-        proc.wait()  # Espera a que termine el contenedor
+
+        def watchdog():
+            time.sleep(10)
+            if proc.poll() is None:
+                log(f"[{temp_id}] ADVERTENCIA: El contenedor lleva más de 10 segundos en ejecución", LogColor.YELLOW)
+
+        threading.Thread(target=watchdog, daemon=True).start()
+
+        proc.wait()
         count = decrement_containers()
         log(f"[{temp_id}] Docker ejecutado correctamente en {elapsed(step_start)}. Contenedores simultáneos: {count}", LogColor.GREEN)
 
-        # Solo eliminar mensaje y archivo si el docker terminó bien
         try:
-            sqs.delete_message(
-                QueueUrl=QUEUE_URL,
-                ReceiptHandle=receipt_handle
-            )
+            sqs.delete_message(QueueUrl=QUEUE_URL, ReceiptHandle=receipt_handle)
             log(f"[{temp_id}] Mensaje eliminado de SQS", LogColor.GREEN)
         except Exception as e:
             log(f"[{temp_id}] Error al eliminar mensaje de SQS: {e}", LogColor.RED)
@@ -87,7 +102,6 @@ def run_docker_async(temp_filename, temp_id, receipt_handle):
     except Exception as e:
         count = decrement_containers()
         log(f"[{temp_id}] Error en ejecución de Docker: {e}. Contenedores simultáneos: {count}", LogColor.RED)
-        # Aquí podrías manejar reintentos o dejar mensaje sin borrar
 
 def handle_message(message):
     temp_id = str(uuid.uuid4())
@@ -98,7 +112,7 @@ def handle_message(message):
     body = message['Body']
     try:
         body_json = extract_json_from_body(body)
-        json.loads(body_json)  # Verificación de que es válido
+        json.loads(body_json)
         with open(temp_filename, 'w') as f:
             f.write(body_json)
         log(f"[{temp_id}] JSON guardado en {elapsed(step_start)}", LogColor.GREEN)
@@ -106,9 +120,7 @@ def handle_message(message):
         log(f"[{temp_id}] Error al guardar JSON: {e}", LogColor.RED)
         return temp_id, "ERROR"
 
-    # Lanzar contenedor en hilo separado y retornar rápido
     threading.Thread(target=run_docker_async, args=(temp_filename, temp_id, message['ReceiptHandle'])).start()
-
     log(f"[{temp_id}] Contenedor lanzado en hilo separado, no bloqueo hilo principal", LogColor.YELLOW)
     log(f"[{temp_id}] ===== FIN =====", LogColor.CYAN)
     return temp_id, "OK"
@@ -116,6 +128,9 @@ def handle_message(message):
 def process_messages():
     max_workers = 10
     log(f"Iniciando listener con hasta {max_workers} hilos...", LogColor.CYAN)
+
+    # Inicia monitoreo del sistema
+    threading.Thread(target=monitor_system, daemon=True).start()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         try:
@@ -129,7 +144,6 @@ def process_messages():
                 if not messages:
                     continue
 
-                # Solo esperamos a que se lance el manejo (no a que terminen los contenedores)
                 futures = [executor.submit(handle_message, msg) for msg in messages]
                 for future in futures:
                     temp_id, status = future.result()
