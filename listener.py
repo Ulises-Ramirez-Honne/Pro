@@ -3,6 +3,7 @@ import uuid
 import os
 import subprocess
 import boto3
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ANSI color codes para logs
@@ -16,30 +17,35 @@ class LogColor:
 def log(msg, color=LogColor.RESET):
     print(f"{color}{msg}{LogColor.RESET}")
 
-# URL de la cola SQS
 QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/153788051293/DocumentInformationQueue'
-
-# Cliente de SQS
 sqs = boto3.client('sqs', region_name='us-east-1')
 
 def handle_message(message):
-    body = message['Body']
-    receipt_handle = message['ReceiptHandle']
     temp_id = str(uuid.uuid4())
     temp_filename = f"/tmp/message_{temp_id}.json"
-
     start_time = time.time()
 
-    log(f"[{temp_id}] Inicia lectura de nuevo mensaje", LogColor.CYAN)
-    log(body, LogColor.YELLOW)
-    log(f"[{temp_id}] Mensaje recibido correctamente...", LogColor.CYAN)
-
-    # Guardar el mensaje en un archivo temporal
-    with open(temp_filename, 'w') as f:
-        f.write(body)
-
+    # Solo guarda el body (que es un string JSON)
+    body = message['Body']
     try:
-        log(f"[{temp_id}] Ejecutando Docker con archivo de mensaje...", LogColor.YELLOW)
+        # Validar que el body es un JSON válido antes de guardar
+        json.loads(body)
+        with open(temp_filename, 'w') as f:
+            f.write(body)
+    except Exception as e:
+        log(f"[{temp_id}] Body no es JSON válido: {e}", LogColor.RED)
+        return temp_id, "ERROR"
+
+    # Log compacto y ordenado
+    log_lines = [
+        f"[{temp_id}] Inicia procesamiento",
+        f"[{temp_id}] Mensaje recibido correctamente...",
+        f"[{temp_id}] Ejecutando Docker con archivo de mensaje..."
+    ]
+    log('\n'.join(log_lines), LogColor.CYAN)
+
+    status = "OK"
+    try:
         subprocess.run([
             'docker', 'run', '--rm',
             '-v', f'{temp_filename}:/app/message.json',
@@ -47,13 +53,11 @@ def handle_message(message):
             '/app/message.json'
         ], check=True)
 
-        # Si la ejecución fue exitosa, eliminar el mensaje de la cola
         sqs.delete_message(
             QueueUrl=QUEUE_URL,
-            ReceiptHandle=receipt_handle
+            ReceiptHandle=message['ReceiptHandle']
         )
         log(f"[{temp_id}] Mensaje eliminado de la cola SQS.", LogColor.GREEN)
-        status = "OK"
     except subprocess.CalledProcessError as e:
         log(f"[{temp_id}] Error al ejecutar el contenedor Docker: {e}", LogColor.RED)
         status = "ERROR"
@@ -62,7 +66,7 @@ def handle_message(message):
         log(f"[{temp_id}] Archivo temporal eliminado.", LogColor.CYAN)
 
     elapsed = time.time() - start_time
-    log(f"[{temp_id}] Tiempo de procesamiento: {elapsed:.2f} segundos.", LogColor.CYAN)
+    log(f"[{temp_id}] Tiempo de procesamiento: {elapsed:.2f} segundos.", LogColor.YELLOW)
     return temp_id, status
 
 def process_messages():
@@ -80,10 +84,7 @@ def process_messages():
                 if not messages:
                     continue
 
-                # Lanzar tareas en paralelo
                 futures = [executor.submit(handle_message, msg) for msg in messages]
-
-                # Esperar y loggear el estado de cada imagen
                 for future in as_completed(futures):
                     temp_id, status = future.result()
                     if status == "OK":
