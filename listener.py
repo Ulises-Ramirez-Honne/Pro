@@ -6,6 +6,7 @@ import boto3
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 # ANSI color codes para logs
 class LogColor:
@@ -20,6 +21,22 @@ def log(msg, color=LogColor.RESET):
 
 QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/153788051293/DocumentInformationQueue'
 sqs = boto3.client('sqs', region_name='us-east-1')
+
+# Contador thread-safe para contenedores en ejecución
+running_containers = 0
+lock = threading.Lock()
+
+def increment_containers():
+    global running_containers
+    with lock:
+        running_containers += 1
+        return running_containers
+
+def decrement_containers():
+    global running_containers
+    with lock:
+        running_containers -= 1
+        return running_containers
 
 def timestamp():
     return time.time()
@@ -55,16 +72,19 @@ def handle_message(message):
 
     step_start = timestamp()
     try:
-        log(f"[{temp_id}] Ejecutando contenedor Docker...", LogColor.YELLOW)
+        count = increment_containers()
+        log(f"[{temp_id}] Ejecutando contenedor Docker... Contenedores simultáneos: {count}", LogColor.YELLOW)
         subprocess.run([
             'docker', 'run', '--rm',
             '-v', f'{temp_filename}:/app/message.json',
             'my-listener-image',
             '/app/message.json'
         ], check=True)
-        log(f"[{temp_id}] Docker ejecutado correctamente en {elapsed(step_start)}", LogColor.GREEN)
+        count = decrement_containers()
+        log(f"[{temp_id}] Docker ejecutado correctamente en {elapsed(step_start)}. Contenedores simultáneos: {count}", LogColor.GREEN)
     except subprocess.CalledProcessError as e:
-        log(f"[{temp_id}] Error en ejecución de Docker: {e}", LogColor.RED)
+        count = decrement_containers()
+        log(f"[{temp_id}] Error en ejecución de Docker: {e}. Contenedores simultáneos: {count}", LogColor.RED)
         return temp_id, "ERROR"
 
     step_start = timestamp()
