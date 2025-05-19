@@ -33,7 +33,9 @@ def handle_message(message):
     log(f"[{temp_id}] ===== INICIO =====", LogColor.CYAN)
 
     step_start = timestamp()
+    print(message)
     body = message['Body']
+    print(body)
     try:
         json.loads(body)
         with open(temp_filename, 'w') as f:
